@@ -140,6 +140,24 @@ http://localhost:8000
 
 不要手动上传 `.env` 文件。GitHub Pages 线上版本可以运行前端分析、图表和结构化结论；若用户在页面输入自己的 DashScope API Key，页面会尝试直接调用千问接口。
 
+## 自定义域名
+
+本项目默认使用子域名：
+
+```text
+energy-agent.cyruszheng.asia
+```
+
+仓库根目录中的 `CNAME` 文件用于告诉 GitHub Pages 使用该自定义域名。域名服务商后台还需要添加一条 DNS 解析：
+
+```text
+类型：CNAME
+主机记录：energy-agent
+记录值：cyruszhng-afk.github.io
+```
+
+DNS 生效后，在 GitHub 仓库 `Settings` -> `Pages` -> `Custom domain` 中填入 `energy-agent.cyruszheng.asia` 并保存。HTTPS 证书签发完成后，勾选 `Enforce HTTPS`。
+
 ## 千问/Qwen 接入建议
 
 GitHub Pages 只能托管静态前端，不能安全保存 API Key，也不能运行 `server.mjs` 这样的后端代理。因此：
