@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>多国家电力能源结构分析智能体</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Energy Mix Analysis Agent</p>
+        <h1>多国家电力能源结构分析智能体</h1>
+      </div>
+      <div class="topbar-actions">
+        <button id="loadSampleBtn" class="button secondary" type="button">加载示例</button>
+        <label class="button primary file-button">
+          上传 CSV
+          <input id="fileInput" type="file" accept=".csv,text/csv" />
+        </label>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="sidebar">
+        <section class="panel">
+          <h2>数据状态</h2>
+          <div id="dataStatus" class="status-box">
+            尚未加载数据。请上传 `MES_0525.csv`，或先加载示例数据。
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>分析控制</h2>
+          <label class="field">
+            国家
+            <select id="countrySelect"></select>
+          </label>
+          <label class="field">
+            对比国家
+            <div id="compareChecklist" class="check-list"></div>
+          </label>
+          <label class="field">
+            起始年份
+            <select id="startYearSelect"></select>
+          </label>
+          <label class="field">
+            结束年份
+            <select id="endYearSelect"></select>
+          </label>
+          <label class="field">
+            异常检测能源品种
+            <select id="productSelect"></select>
+          </label>
+          <button id="runAnalysisBtn" class="button primary full" type="button" disabled>运行智能体分析</button>
+        </section>
+
+        <section class="panel">
+          <h2>千问模型</h2>
+          <div id="qwenStatus" class="status-box compact">
+            正在检测本地代理...
+          </div>
+          <textarea id="questionInput" rows="4" placeholder="例如：比较德国、美国、中国 2018-2025 年能源转型成果。"></textarea>
+          <button id="qwenQuestionBtn" class="button secondary full" type="button" disabled>回答上方问题</button>
+          <button id="qwenReportBtn" class="button secondary full" type="button" disabled>生成综合报告</button>
+        </section>
+
+        <section class="panel">
+          <h2>评分说明</h2>
+          <div class="score-note">
+            <strong>质量评分</strong>
+            <span>有效记录 40% + 风光字段 20% + 总电量字段 20% + 时间跨度 20%。</span>
+          </div>
+          <div class="score-note">
+            <strong>转型评分</strong>
+            <span>期末可再生占比 35% + 风光增长 30% + 化石下降 20% + 结构多样性 15%。</span>
+          </div>
+        </section>
+      </aside>
+
+      <section class="content">
+        <section class="kpi-grid">
+          <article class="metric">
+            <span>覆盖国家</span>
+            <strong id="metricCountries">-</strong>
+          </article>
+          <article class="metric">
+            <span>时间范围</span>
+            <strong id="metricRange">-</strong>
+          </article>
+          <article class="metric">
+            <span>能源品种</span>
+            <strong id="metricProducts">-</strong>
+          </article>
+          <article class="metric">
+            <span>质量评分</span>
+            <strong id="metricQuality">-</strong>
+          </article>
+        </section>
+
+        <section class="tabs" aria-label="分析视图">
+          <button class="tab active" type="button" data-tab="report">智能体结论</button>
+          <button class="tab" type="button" data-tab="profile">国家画像</button>
+          <button class="tab" type="button" data-tab="compare">多国对比</button>
+          <button class="tab" type="button" data-tab="score">转型评分</button>
+          <button class="tab" type="button" data-tab="anomaly">异常检测</button>
+          <button class="tab" type="button" data-tab="forecast">趋势预测</button>
+        </section>
+
+        <section class="tab-stage">
+          <section id="report" class="tab-panel active">
+            <article class="report-card full-height">
+              <div class="panel-heading">
+                <h2>智能体结论</h2>
+                <button id="copyReportBtn" class="icon-button" type="button" title="复制报告">复制</button>
+              </div>
+              <div id="agentReport" class="report-body">
+                加载数据并运行分析后，这里会生成面向课程展示的分析报告。
+              </div>
+            </article>
+          </section>
+
+          <section id="profile" class="tab-panel">
+            <div class="two-col">
+              <article class="chart-panel">
+                <div class="panel-heading">
+                  <h2>月度发电结构</h2>
+                  <span id="profileSubtitle">-</span>
+                </div>
+                <canvas id="mixChart"></canvas>
+              </article>
+              <article class="chart-panel">
+                <div class="panel-heading">
+                  <h2>可再生能源占比</h2>
+                  <span>按月计算</span>
+                </div>
+                <canvas id="renewableChart"></canvas>
+              </article>
+            </div>
+            <div id="profileInsights" class="insight-list"></div>
+          </section>
+
+          <section id="compare" class="tab-panel">
+            <div class="two-col">
+              <article class="chart-panel">
+                <div class="panel-heading">
+                  <h2>国家可再生能源占比对比</h2>
+                  <span id="compareSubtitle">-</span>
+                </div>
+                <canvas id="compareChart"></canvas>
+              </article>
+              <article class="table-card">
+                <div class="panel-heading">
+                  <h2>多国对比明细</h2>
+                </div>
+                <div class="table-wrap embedded">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>国家</th>
+                        <th>期初占比</th>
+                        <th>期末占比</th>
+                        <th>变化</th>
+                        <th>风光占比</th>
+                        <th>化石占比</th>
+                      </tr>
+                    </thead>
+                    <tbody id="compareTable"></tbody>
+                  </table>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section id="score" class="tab-panel">
+            <div class="two-col">
+              <article class="chart-panel">
+                <div class="panel-heading">
+                  <h2>能源转型评分</h2>
+                  <span>综合评估</span>
+                </div>
+                <canvas id="scoreChart"></canvas>
+              </article>
+              <article class="table-card">
+                <div class="panel-heading">
+                  <h2>转型评分明细</h2>
+                </div>
+                <div class="table-wrap embedded">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>排名</th>
+                        <th>国家</th>
+                        <th>综合得分</th>
+                        <th>可再生占比</th>
+                        <th>风光增长</th>
+                        <th>化石下降</th>
+                        <th>多样性</th>
+                      </tr>
+                    </thead>
+                    <tbody id="scoreTable"></tbody>
+                  </table>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section id="anomaly" class="tab-panel">
+            <div class="two-col">
+              <article class="chart-panel">
+                <div class="panel-heading">
+                  <h2>异常波动检测</h2>
+                  <span id="anomalySubtitle">基于 12 个月滚动均值与标准差</span>
+                </div>
+                <canvas id="anomalyChart"></canvas>
+              </article>
+              <article class="table-card">
+                <div class="panel-heading">
+                  <h2>异常检测明细</h2>
+                </div>
+                <div class="table-wrap embedded">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>月份</th>
+                        <th>能源品种</th>
+                        <th>数值 GWh</th>
+                        <th>Z 分数</th>
+                        <th>解释</th>
+                      </tr>
+                    </thead>
+                    <tbody id="anomalyTable"></tbody>
+                  </table>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section id="forecast" class="tab-panel">
+            <article class="chart-panel">
+              <div class="panel-heading">
+                <h2>未来 12 个月趋势预测</h2>
+                <span>季节朴素模型 + 近年趋势修正</span>
+              </div>
+              <canvas id="forecastChart"></canvas>
+            </article>
+            <div id="forecastInsights" class="insight-list"></div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <template id="emptyRowTemplate">
+      <tr>
+        <td colspan="7" class="empty">暂无数据</td>
+      </tr>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
