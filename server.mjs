@@ -6,11 +6,11 @@ import { fileURLToPath } from "node:url";
 
 const rootDir = fileURLToPath(new URL(".", import.meta.url));
 const env = await loadEnv();
-const port = Number(env.PORT || process.env.PORT || 8000);
-const qwenModel = env.QWEN_MODEL || process.env.QWEN_MODEL || "qwen-plus";
+const port = Number(process.env.PORT || env.PORT || 8000);
+const qwenModel = process.env.QWEN_MODEL || env.QWEN_MODEL || "qwen3.7-plus";
 const qwenBaseUrl =
-  env.QWEN_BASE_URL || process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1";
-const qwenApiKey = env.DASHSCOPE_API_KEY || process.env.DASHSCOPE_API_KEY || "";
+  process.env.QWEN_BASE_URL || env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1";
+const qwenApiKey = process.env.DASHSCOPE_API_KEY || env.DASHSCOPE_API_KEY || "";
 
 const server = createServer(async (req, res) => {
   try {
@@ -26,6 +26,7 @@ const server = createServer(async (req, res) => {
       sendJson(res, {
         configured: Boolean(qwenApiKey && !qwenApiKey.includes("your_")),
         model: qwenModel,
+        acceptsClientKey: true,
       });
       return;
     }
@@ -47,12 +48,15 @@ server.listen(port, () => {
 });
 
 async function handleQwenReport(req, res) {
-  if (!qwenApiKey || qwenApiKey.includes("your_")) {
-    sendJson(res, { error: "Missing DASHSCOPE_API_KEY in .env" }, 400);
+  const body = await readJsonBody(req);
+  const clientApiKey = cleanEnvValue(body.apiKey);
+  const effectiveApiKey = clientApiKey || qwenApiKey;
+  const effectiveModel = cleanEnvValue(body.model) || qwenModel;
+  if (!effectiveApiKey || effectiveApiKey.includes("your_")) {
+    sendJson(res, { error: "请在 .env 中配置 DASHSCOPE_API_KEY，或在页面输入自己的 API Key。" }, 400);
     return;
   }
 
-  const body = await readJsonBody(req);
   const payload = body.analysisSummary || {};
   const question = body.question || "";
   const localAnswer = body.localAnswer || "";
@@ -76,11 +80,11 @@ async function handleQwenReport(req, res) {
   const response = await fetch(`${qwenBaseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${qwenApiKey}`,
+      Authorization: `Bearer ${effectiveApiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: qwenModel,
+      model: effectiveModel,
       messages: [
         {
           role: "system",
@@ -106,7 +110,7 @@ async function handleQwenReport(req, res) {
   }
 
   const text = result?.choices?.[0]?.message?.content || "";
-  sendJson(res, { text, model: qwenModel });
+  sendJson(res, { text, model: effectiveModel });
 }
 
 async function serveStatic(pathname, res) {
@@ -150,6 +154,10 @@ async function loadEnv() {
     acc[key] = value;
     return acc;
   }, {});
+}
+
+function cleanEnvValue(value) {
+  return value == null ? "" : String(value).trim().replace(/^['"]|['"]$/g, "");
 }
 
 function sendJson(res, payload, status = 200) {

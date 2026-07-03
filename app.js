@@ -8,8 +8,13 @@ const state = {
   charts: {},
   lastAnalysis: null,
   qwenAvailable: false,
-  qwenModel: "",
+  qwenProxyAvailable: false,
+  qwenProxyConfigured: false,
+  qwenModel: "qwen3.7-plus",
 };
+
+const QWEN_DEFAULT_MODEL = "qwen3.7-plus";
+const QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 
 const PRODUCT_GROUPS = {
   renewable: ["Hydro", "Wind", "Solar", "Geothermal", "Combustible Renewables", "Other Renewables"],
@@ -93,6 +98,8 @@ const els = {
   endYearSelect: document.querySelector("#endYearSelect"),
   productSelect: document.querySelector("#productSelect"),
   questionInput: document.querySelector("#questionInput"),
+  qwenApiKeyInput: document.querySelector("#qwenApiKeyInput"),
+  qwenModelInput: document.querySelector("#qwenModelInput"),
   dataStatus: document.querySelector("#dataStatus"),
   metricCountries: document.querySelector("#metricCountries"),
   metricRange: document.querySelector("#metricRange"),
@@ -123,6 +130,8 @@ function bindEvents() {
   els.qwenQuestionBtn.addEventListener("click", askQwenQuestion);
   els.qwenReportBtn.addEventListener("click", () => generateQwenReport());
   els.copyReportBtn.addEventListener("click", () => copyText(els.agentReport.innerText));
+  els.qwenApiKeyInput.addEventListener("input", refreshQwenState);
+  els.qwenModelInput.addEventListener("input", refreshQwenState);
 
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => activateTab(tab.dataset.tab));
@@ -782,16 +791,81 @@ async function checkQwenStatus() {
     const response = await fetch("/api/qwen-health", { cache: "no-store" });
     if (!response.ok) throw new Error("Qwen proxy unavailable");
     const data = await response.json();
-    state.qwenAvailable = Boolean(data.configured);
-    state.qwenModel = data.model || "qwen-plus";
-    els.qwenStatus.textContent = state.qwenAvailable
-      ? `已连接：${state.qwenModel}`
-      : "代理已启动，但缺少 .env 中的 DASHSCOPE_API_KEY。";
+    state.qwenProxyAvailable = true;
+    state.qwenProxyConfigured = Boolean(data.configured);
+    if (data.model) {
+      state.qwenModel = data.model;
+      els.qwenModelInput.value = data.model;
+    }
   } catch (error) {
-    state.qwenAvailable = false;
-    els.qwenStatus.textContent = "未连接：请用 node server.mjs 启动千问代理。";
+    state.qwenProxyAvailable = false;
+    state.qwenProxyConfigured = false;
   }
+  refreshQwenState();
+}
+
+function refreshQwenState() {
+  const connection = getQwenConnection();
+  state.qwenAvailable = connection.available;
+  state.qwenModel = connection.model;
+  if (els.qwenStatus) els.qwenStatus.textContent = connection.status;
   updateQwenButton();
+}
+
+function getQwenConnection() {
+  const apiKey = getDirectQwenApiKey();
+  const model = getSelectedQwenModel();
+  if (state.qwenProxyAvailable) {
+    if (apiKey) {
+      return {
+        available: true,
+        mode: "proxy-client-key",
+        apiKey,
+        model,
+        status: `本地代理 + 页面 Key：${model}`,
+      };
+    }
+    if (state.qwenProxyConfigured) {
+      return {
+        available: true,
+        mode: "proxy-env",
+        apiKey: "",
+        model,
+        status: `已连接本地代理：${model}`,
+      };
+    }
+    return {
+      available: false,
+      mode: "proxy-missing-key",
+      apiKey: "",
+      model,
+      status: "本地代理已启动，请输入页面 API Key 或配置 .env。",
+    };
+  }
+  if (apiKey) {
+    return {
+      available: true,
+      mode: "direct",
+      apiKey,
+      model,
+      status: `页面 Key 已就绪：${model}`,
+    };
+  }
+  return {
+    available: false,
+    mode: "none",
+    apiKey: "",
+    model,
+    status: "未连接：启动本地代理，或输入自己的千问 API Key。",
+  };
+}
+
+function getDirectQwenApiKey() {
+  return els.qwenApiKeyInput.value.trim();
+}
+
+function getSelectedQwenModel() {
+  return els.qwenModelInput.value.trim() || QWEN_DEFAULT_MODEL;
 }
 
 function updateQwenButton() {
@@ -802,34 +876,103 @@ function updateQwenButton() {
 
 async function generateQwenReport(question = "", localAnswer = "") {
   if (!state.lastAnalysis) return;
-  if (!state.qwenAvailable) {
-    els.qwenStatus.textContent = "千问未连接，当前显示本地工具生成的结论。";
+  const connection = getQwenConnection();
+  if (!connection.available) {
+    els.qwenStatus.textContent = connection.status;
     return;
   }
-  els.qwenStatus.textContent = `正在调用 ${state.qwenModel || "qwen-plus"}...`;
-    els.qwenReportBtn.disabled = true;
-    els.qwenQuestionBtn.disabled = true;
+  els.qwenStatus.textContent = `正在调用 ${connection.model}...`;
+  els.qwenReportBtn.disabled = true;
+  els.qwenQuestionBtn.disabled = true;
   try {
-    const response = await fetch("/api/qwen-report", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        question,
-        localAnswer,
-        analysisSummary: buildAnalysisSummary(state.lastAnalysis),
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "千问调用失败");
+    const data =
+      connection.mode === "direct"
+        ? await callQwenDirect(question, localAnswer, connection)
+        : await callQwenProxy(question, localAnswer, connection);
     const heading = question ? `千问回答：${question}` : "千问生成结论";
     setReport(`# ${heading}\n\n${data.text}`);
-    els.qwenStatus.textContent = `已由 ${data.model || state.qwenModel} 生成`;
+    els.qwenStatus.textContent = `已由 ${data.model || connection.model} 生成`;
     activateTab("report");
   } catch (error) {
-    els.qwenStatus.textContent = `千问调用失败：${error.message}`;
+    const message =
+      connection.mode === "direct" && error instanceof TypeError
+        ? "浏览器直连失败，可能是跨域限制或网络错误；请改用本地 node server.mjs 代理。"
+        : error.message || "千问调用失败";
+    els.qwenStatus.textContent = `千问调用失败：${message}`;
   } finally {
     updateQwenButton();
   }
+}
+
+async function callQwenProxy(question, localAnswer, connection) {
+  const response = await fetch("/api/qwen-report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      question,
+      localAnswer,
+      model: connection.model,
+      apiKey: connection.apiKey || "",
+      analysisSummary: buildAnalysisSummary(state.lastAnalysis),
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "千问调用失败");
+  return data;
+}
+
+async function callQwenDirect(question, localAnswer, connection) {
+  const response = await fetch(`${QWEN_BASE_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${connection.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: connection.model,
+      messages: buildQwenMessages(question, localAnswer, buildAnalysisSummary(state.lastAnalysis)),
+      temperature: 0.2,
+    }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result?.error?.message || result?.message || `HTTP ${response.status}`);
+  }
+  const text = result?.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("千问未返回文本内容");
+  return { text, model: connection.model };
+}
+
+function buildQwenMessages(question, localAnswer, analysisSummary) {
+  return [
+    {
+      role: "system",
+      content:
+        "你是多国家电力能源结构分析智能体的报告生成模块。你基于工具计算结果生成结论，不直接处理原始 CSV。",
+    },
+    {
+      role: "user",
+      content: buildQwenUserPrompt(question, localAnswer, analysisSummary),
+    },
+  ];
+}
+
+function buildQwenUserPrompt(question, localAnswer, analysisSummary) {
+  return [
+    "请基于下面的结构化能源数据分析结果，生成中文回答。",
+    "要求：",
+    "1. 直接回答用户问题，不要泛泛介绍。",
+    "2. 只能引用给定数据，不要编造政策、新闻或外部事实。",
+    "3. 说明关键指标依据，例如可再生占比、风光占比、化石占比、变化幅度、异常数量或预测趋势。",
+    "4. 输出适合课程项目展示，语气专业、简洁。",
+    "5. 可以使用 Markdown 的标题、加粗和列表组织内容。",
+    "",
+    `用户问题：${question || "请生成本次智能体分析结论。"}`,
+    localAnswer ? `本地工具初步回答：${localAnswer}` : "",
+    `结构化分析结果：${JSON.stringify(analysisSummary, null, 2)}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function buildAnalysisSummary(analysis) {

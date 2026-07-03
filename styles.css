@@ -208,7 +208,8 @@ h2 {
 }
 
 select,
-textarea {
+textarea,
+.text-input {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -219,7 +220,8 @@ textarea {
 }
 
 select:focus,
-textarea:focus {
+textarea:focus,
+.text-input:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(33, 110, 91, 0.14);
 }

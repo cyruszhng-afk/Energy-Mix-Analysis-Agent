@@ -60,6 +60,21 @@
           <div id="qwenStatus" class="status-box compact">
             正在检测本地代理...
           </div>
+          <label class="field">
+            API Key
+            <input
+              id="qwenApiKeyInput"
+              class="text-input"
+              type="password"
+              placeholder="输入自己的 DashScope API Key"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </label>
+          <label class="field">
+            模型名称
+            <input id="qwenModelInput" class="text-input" type="text" value="qwen3.7-plus" autocomplete="off" />
+          </label>
           <textarea id="questionInput" rows="4" placeholder="例如：比较德国、美国、中国 2018-2025 年能源转型成果。"></textarea>
           <button id="qwenQuestionBtn" class="button secondary full" type="button" disabled>回答上方问题</button>
           <button id="qwenReportBtn" class="button secondary full" type="button" disabled>生成综合报告</button>
